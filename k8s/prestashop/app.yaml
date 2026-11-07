@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prestashop-data
+  namespace: prestashop
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 3Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prestashop
+  namespace: prestashop
+  labels:
+    app: prestashop
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: prestashop
+  template:
+    metadata:
+      labels:
+        app: prestashop
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        fsGroup: 33
+      containers:
+        - name: prestashop
+          image: prestashop/prestashop:8-apache
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            # Con DB_SERVER definido la imagen usa la BD externa y no levanta MySQL interno.
+            - name: DB_SERVER
+              value: prestashop-db
+            - name: DB_NAME
+              value: prestashop
+            - name: DB_USER
+              value: psuser
+            - name: DB_PASSWD
+              valueFrom:
+                secretKeyRef:
+                  name: prestashop-db-secret
+                  key: password
+            # 0 = se completa el asistente web de instalacion (lo pide el laboratorio)
+            - name: PS_INSTALL_AUTO
+              value: "0"
+          readinessProbe:
+            tcpSocket:
+              port: 80
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: html
+              mountPath: /var/www/html
+              subPath: html
+      volumes:
+        - name: html
+          persistentVolumeClaim:
+            claimName: prestashop-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prestashop
+  namespace: prestashop
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 68.221.245.159
+  selector:
+    app: prestashop
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 80

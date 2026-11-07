@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prestashop-db-data
+  namespace: prestashop
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prestashop-db
+  namespace: prestashop
+  labels:
+    app: prestashop-db
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: prestashop-db
+  template:
+    metadata:
+      labels:
+        app: prestashop-db
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: mariadb
+          image: mariadb:10.11
+          ports:
+            - name: mysql
+              containerPort: 3306
+          env:
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: prestashop-db-secret
+                  key: root-password
+            - name: MARIADB_DATABASE
+              value: prestashop
+            - name: MARIADB_USER
+              value: psuser
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: prestashop-db-secret
+                  key: password
+          readinessProbe:
+            tcpSocket:
+              port: 3306
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+              subPath: mysql
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: prestashop-db-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prestashop-db
+  namespace: prestashop
+spec:
+  type: ClusterIP
+  selector:
+    app: prestashop-db
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
